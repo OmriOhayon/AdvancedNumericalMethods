@@ -47,7 +47,7 @@ def integrate_system(fw, df_guess, dtheta_guess):
         eta += H
         results.append(y0.copy())
         etas.append(eta)
-        # if y0[2] < 1e-6:  # עצירה מוקדמת אם theta קטן מאוד
+        # if y0[2] < 1e-8:  # עצירה מוקדמת אם theta קטן מאוד
         #     return np.array(etas), np.array(results)
         
     return np.array(etas), np.array(results)
@@ -69,12 +69,20 @@ def newton_raphson_solver(x1, x2Df, x2Theta, y1, y2Df, y2Theta, delta, initGuess
         return initGuess
 
 def shooting_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS=1e-3):
+    global ETA_INF, STEPS, H, LAMBDA
     resArray = []
     ii = 0
     for lIdx, lamda in enumerate(lambdaArray):
+        if lamda == 2:
+            ETA_INF = 2.0  # קירוב של "אינסוף"
+            STEPS = 200    # מספר צעדים
+            H = ETA_INF / STEPS
+        else:
+            ETA_INF = 10  # קירוב של "אינסוף"
+            STEPS = 1000    # מספר צעדים
+            H = ETA_INF / STEPS
         for fwIdx, fw_val in enumerate(fw):
             for cIdx, c in enumerate(oneOverC):
-                global LAMBDA
                 LAMBDA = lamda
                 C_PARAM_FINAL = c**(-2/3)
                 C_PARAM = c**(1/3)
@@ -97,11 +105,12 @@ def shooting_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS
                 thetaError = thetaFinal - TARGET_THETA
 
                 errNorm = np.sqrt(fTagError**2 + thetaError**2)
-
+                resDf = np.zeros([2])
+                resDtheta = np.zeros([2])
                 if errNorm <= EPS:
                     print(f"Converged for Lambda={lamda}, fw={fw_val}, C={c}")
-                while errNorm > EPS:
-                    delta = 1e-2
+                while errNorm > EPS and not (np.any(np.abs(resDf[1]) > 10) or np.any(np.abs(resDtheta[1]) > 10)):
+                    delta = 1e-3
                     resDf = integrate_system(fwToUse, initDfGuess + delta, initDThetaGuess)
                     resDtheta = integrate_system(fwToUse, initDfGuess, initDThetaGuess + delta)
 
@@ -126,7 +135,7 @@ def shooting_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS
                     thetaError = thetaFinal - TARGET_THETA
 
                     errNorm = np.sqrt(fTagError**2 + thetaError**2)
-                    print(f"Iterating for Lambda={lamda}, fw={fw_val}, 1/C={c}, Error Norm={errNorm}")
+                    # print(f"Iterating for Lambda={lamda}, fw={fw_val}, 1/C={c}, Error Norm={errNorm}")
 
                 plt.figure()
                 plt.plot(res[0], res[1][:, :])  # Plotting eta vs f
@@ -135,7 +144,7 @@ def shooting_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS
                 plt.ylabel('f(eta)')
                 plt.title(f'Lambda={lamda}, C^1/3={C_PARAM_FINAL}, fw={fw_val}')
                 plt.legend(['f', "f'", 'theta', "theta'"])
-                
+
     return resArray
 
 data = [ # ערכי ההתחלה מהמאמר
@@ -175,17 +184,16 @@ data = [ # ערכי ההתחלה מהמאמר
 ]
 
 initGuessArray = np.array(data)
+# initGuessArray[:, 3:] -= 0.3
 ii = 0  # index to select which set of parameters to run
 
 # lambdaArray = np.asarray([0.5, 2])
-lambdaArray = np.asarray([0.5])
+lambdaArray = np.asarray([2])
 fw = np.asarray([-1, 0, 1])
+# fw = np.asarray([-1])
+# oneOverC = np.asarray([1, 2, 5, 8])
 oneOverC = np.asarray([1, 2, 5, 8])
 # oneOverC = np.asarray([1])
-
-ETA_INF = 10  # קירוב של "אינסוף"
-STEPS = 1000    # מספר צעדים
-H = ETA_INF / STEPS
 
 resArray = []
 
@@ -197,7 +205,7 @@ lambdaLabels = {0.5: '0.5', 2.0: '2.0'}
 cLabels = {1: '1', 2: '2', 5: '5', 8: '8'}
 labels = ['f(eta)', "f '(eta)", 'theta(eta)', "theta '(eta)"]
 
-resArray = shooting_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS=1e-6)
+resArray = shooting_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS=1e-5)
 
 for idx, label in enumerate(labels):
     plt.figure()

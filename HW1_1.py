@@ -70,11 +70,23 @@ def newton_raphson_solver(x1, x2Df, x2Theta, y1, y2Df, y2Theta, delta, initGuess
 def shooting_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS=1e-3):
     global ETA_INF, STEPS, H, LAMBDA
     resArray = []
-    ii = 0
+    paramsArray = []  # Store parameters for each run
+    # Full arrays matching the data table structure
+    full_lambda = [0.5, 2.0]
+    full_fw = [-1.0, 0.0, 1.0]
+    full_oneOverC = [1.0, 2.0, 5.0, 8.0]
+    
     for lIdx, lamda in enumerate(lambdaArray):
         for fwIdx, fw_val in enumerate(fw):
             for cIdx, c in enumerate(oneOverC):
-                ETA_INF = initGuessArray[ii, 5] * 1.2
+                # Calculate correct index into data table
+                lambda_idx_full = full_lambda.index(lamda)
+                fw_idx_full = full_fw.index(fw_val)
+                c_idx_full = full_oneOverC.index(c)
+                ii = lambda_idx_full * 12 + fw_idx_full * 4 + c_idx_full
+                
+                ETA_INF = initGuessArray[ii, 5] * 1.3
+                # ETA_INF = 6.0
                 H = 0.01
                 STEPS = int(ETA_INF / H)
                 # STEPS = 200
@@ -83,12 +95,12 @@ def shooting_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS
                 C_PARAM = c**(1/3)
                 initDThetaGuess = -initGuessArray[ii, 3]
                 initDfGuess = initGuessArray[ii, 4]
-                ii += 1
                 fwTimesC = fw_val * C_PARAM
-                fwToUse = fwTimesC
-                # fwToUse = fw_val
+                # fwToUse = fwTimesC
+                fwToUse = fw_val
                 res = integrate_system(fwToUse, initDfGuess, initDThetaGuess)
                 resArray.append(res)
+                paramsArray.append({'lambda': lamda, 'fw': fw_val, 'oneOverC': c})
 
                 boundryValues = res[1][-1, :]
                 fFinal = boundryValues[0]
@@ -100,12 +112,16 @@ def shooting_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS
                 thetaError = thetaFinal - TARGET_THETA
 
                 errNorm = np.sqrt(fTagError**2 + thetaError**2)
-                resDf = np.zeros([2])
-                resDtheta = np.zeros([2])
+                
                 if errNorm <= EPS:
-                    print(f"Converged for Lambda={lamda}, fw={fw_val}, C={c}")
-                while errNorm > EPS and not (np.any(np.abs(resDf[1]) > 10) or np.any(np.abs(resDtheta[1]) > 10)):
-                    delta = 1e-3
+                    print(f"Converged for Lambda={lamda}, fw={fw_val}, C={c}. Error Norm={errNorm}")
+                    continue  # Skip to next iteration, already converged
+                
+                # Initialize divergence check - will be updated in first loop iteration
+                divergence_detected = False
+                
+                while errNorm > EPS and not divergence_detected:
+                    delta = 1e-1
                     resDf = integrate_system(fwToUse, initDfGuess + delta, initDThetaGuess)
                     resDtheta = integrate_system(fwToUse, initDfGuess, initDThetaGuess + delta)
 
@@ -113,12 +129,18 @@ def shooting_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS
                     boundryDf_Theta = resDf[1][-1, 2]
                     boundryDtheta_Df = resDtheta[1][-1, 1]
                     boundryDtheta_Theta = resDtheta[1][-1, 2]
+                    
+                    # Check for divergence
+                    if (np.any(np.abs(resDf[1][-1, :]) > 10) or np.any(np.abs(resDtheta[1][-1, :]) > 10)):
+                        print(f"Divergence detected for Lambda={lamda}, fw={fw_val}, C={c}")
+                        divergence_detected = True
+                        break
 
                     new_res = newton_raphson_solver(dfFinal, boundryDf_Df, boundryDf_Theta, thetaFinal, boundryDtheta_Df, boundryDtheta_Theta, delta, np.array([initDfGuess, initDThetaGuess]), np.array([fTagError, thetaError]))
                     
                     initDfGuess, initDThetaGuess = new_res
                     res = integrate_system(fwToUse, initDfGuess, initDThetaGuess)
-                    resArray[ii-1] = res
+                    resArray[-1] = res
 
                     boundryValues = res[1][-1, :]
                     fFinal = boundryValues[0]
@@ -130,6 +152,8 @@ def shooting_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS
                     thetaError = thetaFinal - TARGET_THETA
 
                     errNorm = np.sqrt(fTagError**2 + thetaError**2)
+                    if errNorm <= EPS:
+                        print(f"Converged for Lambda={lamda}, fw={fw_val}, C={c}. Final Error Norm={errNorm}")
                     # print(f"Iterating for Lambda={lamda}, fw={fw_val}, 1/C={c}, Error Norm={errNorm}")
 
                 # plt.figure()
@@ -140,7 +164,7 @@ def shooting_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS
                 # plt.title(f'Lambda={lamda}, C^1/3={C_PARAM_FINAL}, fw={fw_val}')
                 # plt.legend(['f', "f'", 'theta', "theta'"])
 
-    return resArray
+    return resArray, paramsArray
 
 # def finite_difference_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS=1e-5):
 #     global ETA_INF, STEPS, H, LAMBDA, MAX_ITER
@@ -475,7 +499,11 @@ def finite_difference_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_T
     global ETA_INF, STEPS, H, LAMBDA, MAX_ITER
     MAX_ITER = 10000
     resArray = []
-    ii = 0
+    paramsArray = []  # Store parameters for each run
+    # Full arrays matching the data table structure
+    full_lambda = [0.5, 2.0]
+    full_fw = [-1.0, 0.0, 1.0]
+    full_oneOverC = [1.0, 2.0, 5.0, 8.0]
 
     def cumtrapz(y, h):
         # cumulative trapezoid integral from 0..i
@@ -494,8 +522,13 @@ def finite_difference_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_T
     for lamda in lambdaArray:
         for fw_val in fw:
             for c in oneOverC:
+                # Calculate correct index into data table
+                lambda_idx_full = full_lambda.index(lamda)
+                fw_idx_full = full_fw.index(fw_val)
+                c_idx_full = full_oneOverC.index(c)
+                ii = lambda_idx_full * 12 + fw_idx_full * 4 + c_idx_full
+                
                 ETA_INF = initGuessArray[ii, 5] * 4.0
-                ii += 1
 
                 # ---- FIX: consistent grid ----
                 H = 0.01
@@ -585,6 +618,7 @@ def finite_difference_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_T
                         print(f"  Converged in {k} iterations.")
                         dtheta_out = d1_center(theta, H)
                         resArray.append([eta, np.asarray([f, fp, theta, dtheta_out])])
+                        paramsArray.append({'lambda': lamda, 'fw': fw_val, 'oneOverC': c})
                         converged = True
                         break
 
@@ -592,8 +626,9 @@ def finite_difference_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_T
                     print("Did not converge.")
                     dtheta_out = d1_center(theta, H)
                     resArray.append([eta, np.asarray([f, fp, theta, dtheta_out])])
+                    paramsArray.append({'lambda': lamda, 'fw': fw_val, 'oneOverC': c})
 
-    return resArray
+    return resArray, paramsArray
 
 def gauss_seidel_method():
     pass
@@ -634,9 +669,47 @@ data = [ # ערכי ההתחלה מהמאמר
     [2.0, 1.0, 8.0, 3.6683, 5.4273, 1.2327]
 ]
 
-initGuessArray = np.array(data)
-initGuessArray[:, 3:5] -= 0.1
-ii = 0  # index to select which set of parameters to run
+dataOptimized = [ # ערכי ההתחלה מהמאמר
+    # --- Lambda = 0.5 ---
+    # fw = -1
+    [0.5, -1.0, 1.0, 0.8862, 1.8862, 3.2154],
+    [0.5, -1.0, 2.0, 1.0450-0.1, 2.5547-0.1, 2.9088],
+    [0.5, -1.0, 5.0, 1.3575, 4.1212, 2.4379],
+    [0.5, -1.0, 8.0, 1.5724, 5.3921, 1.8704],
+    # fw = 0
+    [0.5, 0.0, 1.0, 1.1020, 1.7474, 2.8250],
+    [0.5, 0.0, 2.0, 1.2495, 2.3479, 2.6049],
+    [0.5, 0.0, 5.0, 1.5503-2.2, 3.7996-2.2, 2.2380],
+    [0.5, 0.0, 8.0, 1.7610-2.2, 4.9990-2.2, 2.0340],
+    # fw = 1
+    [0.5, 1.0, 1.0, 1.3745, 1.6264, 2.4624],
+    [0.5, 1.0, 2.0, 1.5041, 2.1591, 2.3115],
+    [0.5, 1.0, 5.0, 1.7825-3, 3.4927-3, 2.0347],
+    [0.5, 1.0, 8.0, 1.9836-3, 4.6181-3, 1.8688],
+
+    # --- Lambda = 2.0 ---
+    # fw = -1
+    [2.0, -1.0, 1.0, 1.6309, 2.1235, 2.2138],
+    [2.0, -1.0, 2.0, 1.9494, 2.9781, 2.0284],
+    [2.0, -1.0, 5.0, 2.5716+0.35, 4.9815, 1.7304],
+    [2.0, -1.0, 8.0, 2.9971, 6.6069, 1.5729],
+    # fw = 0, 3.2154
+    [2.0, 0.0, 1.0, 2.0044, 1.9159, 1.8532],
+    [2.0, 0.0, 2.0, 2.2889, 2.6630, 1.7334],
+    [2.0, 0.0, 5.0, 2.8820, 4.4981, 1.5188],
+    [2.0, 0.0, 8.0, 3.2927, 6.0105, 1.3954],
+    # fw = 1
+    [2.0, 1.0, 1.0, 2.5182, 1.7391, 1.5371],
+    [2.0, 1.0, 2.0, 2.7574, 2.3852, 1.4656],
+    [2.0, 1.0, 5.0, 3.2827, 4.0268, 1.3230],
+    [2.0, 1.0, 8.0, 3.6683, 5.4273, 1.2327]
+]
+
+# initGuessArray = np.array(data)
+initGuessArray = np.array(dataOptimized)
+# initGuessArray[:, 3:5] -= 0.1
+# initGuessArray[:, 3] += 0.01
+# initGuessArray[:, 4] -= 0.1
 
 lambdaArray = np.asarray([0.5, 2])
 # lambdaArray = np.asarray([2])
@@ -645,9 +718,12 @@ fw = np.asarray([-1, 0, 1])
 # fw = np.asarray([-1])
 # fw = np.asarray([0])
 # fw = np.asarray([1])
+# fw = np.asarray([0, 1])
 # oneOverC = np.asarray([1, 2, 5, 8])
 oneOverC = np.asarray([1, 2, 5, 8])
-# oneOverC = np.asarray([1])
+# oneOverC = np.asarray([2, 5, 8])
+# oneOverC = np.asarray([5, 8])
+# oneOverC = np.asarray([8])
 
 resArray = []
 
@@ -659,17 +735,21 @@ lambdaLabels = {0.5: '0.5', 2.0: '2.0'}
 cLabels = {1: '1', 2: '2', 5: '5', 8: '8'}
 labels = ['f(eta)', "f '(eta)", 'theta(eta)', "theta '(eta)"]
 
-resArray = shooting_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS=1e-4)
-# resArray = finite_difference_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS=1e-4)
+# resArray, paramsArray = shooting_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS=1e-5)
+resArray, paramsArray = finite_difference_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS=1e-4)
 
 for idx, label in enumerate(labels):
+    # if idx != 1:
+    #     continue
     plt.figure()
     plt.grid()
     for i, run in enumerate(resArray):
         eta_vals = run[0]
-        # f_vals = run[1][idx, :] # For finite differences method
-        f_vals = run[1][:, idx]   # For shooting method
-        plt.plot(eta_vals, f_vals, label=f'Run {i+1}'+label)
+        f_vals = run[1][idx, :] # For finite differences method
+        # f_vals = run[1][:, idx]   # For shooting method
+        params = paramsArray[i]
+        legend_label = f"λ={params['lambda']}, fw={params['fw']}, 1/C={params['oneOverC']}"
+        plt.plot(eta_vals, f_vals, label=legend_label)
         plt.xlabel('Eta')
         plt.ylabel(label)
     plt.legend()

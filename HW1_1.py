@@ -420,8 +420,18 @@ def finite_difference_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_T
                 c_idx_full = full_oneOverC.index(c)
                 ii = lambda_idx_full * 12 + fw_idx_full * 4 + c_idx_full
                 
-                # ETA_INF = initGuessArray[ii, 5] * 2
-                ETA_INF = 7.0
+                # Match the shooting method's eta_inf selection for the same case
+                if lamda == 2 and fw_val == -1.0:
+                    if c == 5.0:
+                        ETA_INF = initGuessArray[ii, 5] * 3
+                    elif c == 8.0:
+                        ETA_INF = initGuessArray[ii, 5] * 3.17
+                    elif c == 2.0:
+                        ETA_INF = initGuessArray[ii, 5] * 2.5
+                    else:
+                        ETA_INF = initGuessArray[ii, 5] * 3
+                else:
+                    ETA_INF = initGuessArray[ii, 5] * 3
                 # ---- FIX: consistent grid ----
                 H = 0.1
                 N = int(np.ceil(ETA_INF / H))
@@ -565,47 +575,7 @@ data = [ # ערכי ההתחלה מהמאמר
     [2.0, 1.0, 8.0, -3.6683, 5.4273, 1.2327]
 ]
 
-dataOptimized = [ # ערכי ההתחלה מהמאמר
-    # --- Lambda = 0.5 ---
-    # fw = -1
-    [0.5, -1.0, 1.0, -0.8862, 1.8862, 3.2154],
-    [0.5, -1.0, 2.0, -1.0450-0.1, 2.5547-0.1, 2.9088],
-    [0.5, -1.0, 5.0, -1.3575, 4.1212-4, 2.4379],
-    [0.5, -1.0, 8.0, -1.5724, 5.3921-5, 1.8704],
-    # fw = 0
-    [0.5, 0.0, 1.0, -1.1020, 1.7474, 2.8250],
-    [0.5, 0.0, 2.0, -1.2495, 2.3479, 2.6049],
-    [0.5, 0.0, 5.0, -1.5503-2.2, 3.7996-2.2, 2.2380],
-    [0.5, 0.0, 8.0, -1.7610-2.2, 4.9990-2.2, 2.0340],
-    # fw = 1
-    [0.5, 1.0, 1.0, -1.3745, 1.6264, 2.4624],
-    [0.5, 1.0, 2.0, -1.5041, 2.1591, 2.3115],
-    [0.5, 1.0, 5.0, -1.7825-3, 3.4927-3, 2.0347],
-    [0.5, 1.0, 8.0, -1.9836-3, 4.6181-3, 1.8688],
-
-    # --- Lambda = 2.0 ---
-    # fw = -1
-    [2.0, -1.0, 1.0, -1.6309, 2.1235, 2.2138],
-    [2.0, -1.0, 2.0, -1.9494, 2.9781, 2.0284],
-    [2.0, -1.0, 5.0, -2.5716-0.35, 4.9815-4, 1.7304],
-    [2.0, -1.0, 8.0, -2.9971-0.35, 6.6069-5, 1.5729],
-    # fw = 0, 3.2154
-    [2.0, 0.0, 1.0, -2.0044, 1.9159, 1.8532],
-    [2.0, 0.0, 2.0, -2.2889, 2.6630, 1.7334],
-    [2.0, 0.0, 5.0, -2.8820, 4.4981, 1.5188],
-    [2.0, 0.0, 8.0, -3.2927, 6.0105, 1.3954],
-    # fw = 1
-    [2.0, 1.0, 1.0, -2.5182, 1.7391, 1.5371],
-    [2.0, 1.0, 2.0, -2.7574, 2.3852, 1.4656],
-    [2.0, 1.0, 5.0, -3.2827, 4.0268, 1.3230],
-    [2.0, 1.0, 8.0, -3.6683, 5.4273, 1.2327]
-]
-
 initGuessArray = np.array(data)
-# initGuessArray = np.array(dataOptimized)
-# initGuessArray[:, 3:5] -= 0.1
-# initGuessArray[:, 3] += 0.01
-# initGuessArray[:, 4] -= 0.1
 
 lambdaArray = np.asarray([0.5, 2])
 # lambdaArray = np.asarray([2])
@@ -643,7 +613,7 @@ resArray_fd, paramsArray_fd = finite_difference_method(lambdaArray, fw, oneOverC
 
 # Flexible plotting function
 def plot_comparison(variable_idx, filter_lambda=None, filter_fw=None, filter_oneOverC=None, 
-                   plot_shooting=False, plot_fd=True):
+                   plot_shooting=True, plot_fd=True):
     """Plot and compare results from shooting and finite difference methods with filtering options.
     
     Args:
@@ -702,7 +672,7 @@ def plot_comparison(variable_idx, filter_lambda=None, filter_fw=None, filter_one
     ax.set_title(labels[variable_idx])
     # Normal legend placement (inside axes) + tight layout to avoid clipping.
     ax.legend(loc='best', fontsize='small')
-    fig.tight_layout()
+    # fig.tight_layout()
 
 # Example plots - uncomment the ones you want:
 

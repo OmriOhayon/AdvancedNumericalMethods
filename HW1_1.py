@@ -179,7 +179,6 @@ def derivatives_with_sens(eta, y_aug):
     out[8:12] = ds2
     return out
 
-
 def integrate_system_with_sens(fw, df_guess, dtheta_guess):
     """
     Same as integrate_system(), but also integrates sensitivities so you get
@@ -223,7 +222,6 @@ def integrate_system_with_sens(fw, df_guess, dtheta_guess):
 
     return np.array(etas), np.array(Y), np.array(S)
 
-
 def newton_update_from_J(initGuess, errors, J, damper=0.2):
     """
     initGuess: [df0, dtheta0]
@@ -241,8 +239,7 @@ def newton_update_from_J(initGuess, errors, J, damper=0.2):
 
     return initGuess - damper * step
 
-
-def shooting_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS=1e-3):
+def shooting_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS=1e-3, H_input=0.1):
     """Solve boundary value problem using shooting method with Newton-Raphson iteration.
     
     Args:
@@ -252,15 +249,18 @@ def shooting_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS
         initGuessArray (np.ndarray): Initial guess table with shape (N, 6).
         TARGET_THETA (float): Target value for theta at infinity (typically 0).
         EPS (float, optional): Convergence tolerance. Defaults to 1e-3.
+        H_input (float, optional): Step size for integration. Defaults to 0.1.
     
     Returns:
-        tuple: (resArray, paramsArray) where:
+        tuple: (resArray, paramsArray, iterationsArray) where:
             - resArray: List of tuples (eta_array, solution_array) for each case.
             - paramsArray: List of parameter dictionaries for each case.
+            - iterationsArray: List of iteration counts for each case.
     """
     global ETA_INF, STEPS, H, LAMBDA
     resArray = []
     paramsArray = []  # Store parameters for each run
+    iterationsArray = []  # Store iteration counts for each run
     # Full arrays matching the data table structure
     full_lambda = [0.5, 2.0]
     full_fw = [-1.0, 0.0, 1.0]
@@ -290,7 +290,7 @@ def shooting_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS
                 else:
                     ETA_INF = initGuessArray[ii, 5] * 3
                 # ETA_INF = 6
-                H = 0.1
+                H = H_input
                 STEPS = int(ETA_INF / H)
                 LAMBDA = lamda
                 C_PARAM_FINAL = c**(-2/3)
@@ -323,10 +323,12 @@ def shooting_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS
                 
                 if errNorm <= EPS:
                     print(f"Converged for Lambda={lamda}, fw={fw_val}, C={c}. Error Norm={errNorm}")
+                    iterationsArray.append(1)  # Initial integration counts as 1
                     continue  # Skip to next iteration, already converged
                 
                 # Initialize divergence check - will be updated in first loop iteration
                 divergence_detected = False
+                iteration_count = 1  # First integration already done above
                 
                 # --- Newton loop ---
                 while errNorm > EPS:
@@ -343,7 +345,7 @@ def shooting_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS
                     errNorm = np.linalg.norm(errors)
 
                     if errNorm <= EPS:
-                        print(f"Converged for Lambda={lamda}, fw={fw_val}, C={c}. Final Error Norm={errNorm}")
+                        print(f"Converged for Lambda={lamda}, fw={fw_val}, C={c}. Final Error Norm={errNorm}, Iterations={iteration_count}")
                         break
 
                     # sensitivities at boundary
@@ -361,15 +363,18 @@ def shooting_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS
                     guess_new = newton_update_from_J(guess, errors, J, damper=0.2)
 
                     initDfGuess, initDThetaGuess = guess_new
+                    iteration_count += 1  # Count the Newton update
 
                     # optional: bail if NaN
                     if not np.isfinite([initDfGuess, initDThetaGuess]).all():
                         print(f"Diverged (NaN guess) for Lambda={lamda}, fw={fw_val}, C={c}")
                         break
+                
+                iterationsArray.append(iteration_count)
 
-    return resArray, paramsArray
+    return resArray, paramsArray, iterationsArray
 
-def finite_difference_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS=1e-5):
+def finite_difference_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS=1e-5, H_input=0.1):
     """Solve boundary value problem using finite difference method with iterative solving.
     
     Uses a block iteration scheme where f is integrated from equation (8) and theta
@@ -382,16 +387,19 @@ def finite_difference_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_T
         initGuessArray (np.ndarray): Initial guess table with shape (N, 6).
         TARGET_THETA (float): Target value for theta at infinity (typically 0).
         EPS (float, optional): Convergence tolerance. Defaults to 1e-5.
+        H_input (float, optional): Step size for grid. Defaults to 0.1.
     
     Returns:
-        tuple: (resArray, paramsArray) where:
+        tuple: (resArray, paramsArray, iterationsArray) where:
             - resArray: List of tuples (eta_array, solution_array) for each case.
             - paramsArray: List of parameter dictionaries for each case.
+            - iterationsArray: List of iteration counts for each case.
     """
     global ETA_INF, STEPS, H, LAMBDA, MAX_ITER
     MAX_ITER = 30000
     resArray = []
     paramsArray = []  # Store parameters for each run
+    iterationsArray = []  # Store iteration counts for each run
     # Full arrays matching the data table structure
     full_lambda = [0.5, 2.0]
     full_fw = [-1.0, 0.0, 1.0]
@@ -433,7 +441,7 @@ def finite_difference_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_T
                 else:
                     ETA_INF = initGuessArray[ii, 5] * 3
                 # ---- FIX: consistent grid ----
-                H = 0.1
+                H = H_input
                 N = int(np.ceil(ETA_INF / H))
                 if N < 6:
                     N = 6
@@ -521,6 +529,7 @@ def finite_difference_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_T
                         dtheta_out = d1_center(theta, H)
                         resArray.append([eta, np.asarray([f, fp, theta, dtheta_out]).T])
                         paramsArray.append({'lambda': lamda, 'fw': fw_val, 'oneOverC': c})
+                        iterationsArray.append(k)
                         converged = True
                         break
 
@@ -529,8 +538,9 @@ def finite_difference_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_T
                     dtheta_out = d1_center(theta, H)
                     resArray.append([eta, np.asarray([f, fp, theta, dtheta_out]).T])
                     paramsArray.append({'lambda': lamda, 'fw': fw_val, 'oneOverC': c})
+                    iterationsArray.append(MAX_ITER)
 
-    return resArray, paramsArray
+    return resArray, paramsArray, iterationsArray
 
 def gauss_seidel_method():
     """Placeholder for Gauss-Seidel method implementation.
@@ -578,27 +588,10 @@ data = [ # ערכי ההתחלה מהמאמר
 initGuessArray = np.array(data)
 
 lambdaArray = np.asarray([0.5, 2])
-# lambdaArray = np.asarray([2])
-# lambdaArray = np.asarray([0.5])
 fw = np.asarray([-1, 0, 1])
-# fw = np.asarray([-1])
-# fw = np.asarray([0])
-# fw = np.asarray([1])
-# fw = np.asarray([0, 1])
-# oneOverC = np.asarray([1, 2, 5, 8])
-# oneOverC = np.asarray([1, 2])
 oneOverC = np.asarray([1, 2, 5, 8])
-# oneOverC = np.asarray([1, 2, 5])
-# oneOverC = np.asarray([1, 2, 8])
-# oneOverC = np.asarray([2, 5, 8])
-# oneOverC = np.asarray([1, 2])
-# oneOverC = np.asarray([5, 8])
-# oneOverC = np.asarray([8])
 
 resArray = []
-
-# ערכי מטרה באינסוף
-# TARGET_F_TAG = C_PARAM**2
 TARGET_THETA = 0.0
 
 lambdaLabels = {0.5: '0.5', 2.0: '2.0'}
@@ -607,9 +600,9 @@ labels = ['f(eta)', "f '(eta)", 'theta(eta)', "theta '(eta)"]
 
 # Run both methods
 print("Running Shooting Method...")
-resArray_shooting, paramsArray_shooting = shooting_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS=1e-5)
+resArray_shooting, paramsArray_shooting, iterArray_shooting = shooting_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS=1e-5, H_input=0.1)
 print("\nRunning Finite Difference Method...")
-resArray_fd, paramsArray_fd = finite_difference_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS=1e-4)
+resArray_fd, paramsArray_fd, iterArray_fd = finite_difference_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS=1e-4, H_input=0.1)
 
 # Flexible plotting function
 def plot_comparison(variable_idx, filter_lambda=None, filter_fw=None, filter_oneOverC=None, 
@@ -690,5 +683,191 @@ plot_comparison(3, filter_oneOverC=None)
 
 # Plot f for lambda=0.5, fw=0
 plot_comparison(0, filter_lambda=None, filter_fw=None)
+
+
+def plot_iterations_vs_H(H_array, lamda_val, fw_val, oneOverC_val, 
+                          plot_shooting=True, plot_fd=True):
+    """Plot number of iterations vs step size H for a specific scenario.
+    
+    Args:
+        H_array (array-like): Array of H values to test.
+        lamda_val (float): Lambda parameter value (0.5 or 2.0).
+        fw_val (float): Wall velocity value (-1, 0, or 1).
+        oneOverC_val (float): 1/C parameter value (1, 2, 5, or 8).
+        plot_shooting (bool, optional): Whether to plot shooting method results. Defaults to True.
+        plot_fd (bool, optional): Whether to plot finite difference results. Defaults to True.
+    
+    Returns:
+        dict: Dictionary containing iteration counts for each method and H value.
+    
+    Examples:
+        >>> plot_iterations_vs_H([0.05, 0.1, 0.2, 0.5], 0.5, 0, 2)
+        >>> plot_iterations_vs_H([0.01, 0.05, 0.1], 2.0, -1, 1, plot_fd=False)
+    """
+    lambdaArr = np.asarray([lamda_val])
+    fwArr = np.asarray([fw_val])
+    oneOverCArr = np.asarray([oneOverC_val])
+    
+    shooting_iters = []
+    fd_iters = []
+    
+    for H_val in H_array:
+        print(f"\n--- Testing H = {H_val} ---")
+        
+        if plot_shooting:
+            print(f"  Running Shooting Method with H={H_val}...")
+            _, _, iter_shoot = shooting_method(lambdaArr, fwArr, oneOverCArr, 
+                                                initGuessArray, TARGET_THETA, 
+                                                EPS=1e-6, H_input=H_val)
+            shooting_iters.append(iter_shoot[0] if iter_shoot else 0)
+        
+        if plot_fd:
+            print(f"  Running Finite Difference Method with H={H_val}...")
+            _, _, iter_fd = finite_difference_method(lambdaArr, fwArr, oneOverCArr, 
+                                                      initGuessArray, TARGET_THETA, 
+                                                      EPS=1e-4, H_input=H_val)
+            fd_iters.append(iter_fd[0] if iter_fd else 0)
+    
+    # Plotting
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    if plot_shooting and shooting_iters:
+        ax.plot(H_array, shooting_iters, 'o-', label='Shooting Method', 
+                markersize=8, linewidth=2)
+    
+    if plot_fd and fd_iters:
+        ax.plot(H_array, fd_iters, 's--', label='Finite Difference Method', 
+                markersize=8, linewidth=2)
+    
+    ax.set_xlabel('Step Size (H)', fontsize=12)
+    ax.set_ylabel('Number of Iterations', fontsize=12)
+    ax.set_title(f'Iterations vs H for λ={lamda_val}, fw={fw_val}, 1/C={oneOverC_val}', fontsize=14)
+    ax.grid(True, alpha=0.7)
+    ax.legend(loc='best', fontsize=10)
+    
+    # # Use log scale if range is large
+    # if plot_fd and fd_iters and max(fd_iters) > 10 * min([x for x in fd_iters if x > 0], default=1):
+    #     ax.set_yscale('log')
+    
+    # plt.tight_layout()
+    
+    return {'H_array': H_array, 'shooting_iterations': shooting_iters, 'fd_iterations': fd_iters}
+
+def plot_sensitivity_vs_EPS(EPS_array, variable_idx, lamda_val, fw_val, oneOverC_val,
+                            method='shooting', H_val=0.1):
+    """Plot sensitivity of output variable to convergence tolerance EPS.
+    
+    Args:
+        EPS_array (array-like): Array of EPS (convergence tolerance) values to test.
+        variable_idx (int): Index of variable to plot (0=f, 1=f', 2=theta, 3=theta').
+        lamda_val (float): Lambda parameter value (0.5 or 2.0).
+        fw_val (float): Wall velocity value (-1, 0, or 1).
+        oneOverC_val (float): 1/C parameter value (1, 2, 5, or 8).
+        method (str, optional): 'shooting' or 'fd' (finite difference). Defaults to 'shooting'.
+        H_val (float, optional): Step size for integration. Defaults to 0.1.
+    
+    Returns:
+        dict: Dictionary containing results for each EPS value.
+    
+    Examples:
+        >>> plot_sensitivity_vs_EPS([1e-3, 1e-4, 1e-5, 1e-6], 2, 0.5, 0, 2)
+        >>> plot_sensitivity_vs_EPS([1e-2, 1e-3, 1e-4], 1, 2.0, 1, 5, method='fd')
+    """
+    lambdaArr = np.asarray([lamda_val])
+    fwArr = np.asarray([fw_val])
+    oneOverCArr = np.asarray([oneOverC_val])
+    
+    results_per_eps = []
+    
+    fig, ax = plt.subplots(figsize=(12, 7))
+    
+    # Color map for different EPS values
+    colors = plt.cm.viridis(np.linspace(0, 1, len(EPS_array)))
+    
+    for idx, eps_val in enumerate(EPS_array):
+        print(f"\n--- Testing EPS = {eps_val:.2e} ---")
+        
+        if method.lower() == 'shooting':
+            res_array, params_array, iter_array = shooting_method(
+                lambdaArr, fwArr, oneOverCArr, initGuessArray, TARGET_THETA,
+                EPS=eps_val, H_input=H_val
+            )
+        else:  # finite difference
+            res_array, params_array, iter_array = finite_difference_method(
+                lambdaArr, fwArr, oneOverCArr, initGuessArray, TARGET_THETA,
+                EPS=eps_val, H_input=H_val
+            )
+        
+        if res_array:
+            eta_vals = res_array[0][0]
+            var_vals = res_array[0][1][:, variable_idx]
+            iterations = iter_array[0] if iter_array else 0
+            
+            results_per_eps.append({
+                'EPS': eps_val,
+                'eta': eta_vals,
+                'values': var_vals,
+                'iterations': iterations
+            })
+            
+            ax.plot(eta_vals, var_vals, color=colors[idx], 
+                    label=f'EPS={eps_val:.1e} (iter={iterations})', 
+                    linewidth=2, alpha=0.8)
+    
+    ax.set_xlabel('η (Eta)', fontsize=12)
+    ax.set_ylabel(labels[variable_idx], fontsize=12)
+    method_name = 'Shooting' if method.lower() == 'shooting' else 'Finite Difference'
+    ax.set_title(f'Sensitivity Analysis: {labels[variable_idx]} vs η\n'
+                 f'{method_name} Method - λ={lamda_val}, fw={fw_val}, 1/C={oneOverC_val}, H={H_val}', 
+                 fontsize=12)
+    ax.grid(True, alpha=0.7)
+    ax.legend(loc='best', fontsize=9)
+    
+    # plt.tight_layout()
+    
+    # Create a second plot showing convergence behavior
+    fig2, axes2 = plt.subplots(1, 2, figsize=(14, 5))
+    
+    # Plot iterations vs EPS
+    eps_values = [r['EPS'] for r in results_per_eps]
+    iter_values = [r['iterations'] for r in results_per_eps]
+    
+    axes2[0].semilogx(eps_values, iter_values, 'o-', markersize=10, linewidth=2)
+    axes2[0].set_xlabel('EPS (Convergence Tolerance)', fontsize=12)
+    axes2[0].set_ylabel('Number of Iterations', fontsize=12)
+    axes2[0].set_title('Iterations vs Convergence Tolerance', fontsize=12)
+    axes2[0].grid(True, alpha=0.7)
+    axes2[0].invert_xaxis()  # Show smaller EPS on right (tighter tolerance)
+    
+    # Plot final value at eta_inf vs EPS (to check convergence)
+    if len(results_per_eps) >= 2:
+        final_values = [r['values'][-1] for r in results_per_eps]
+        axes2[1].semilogx(eps_values, final_values, 's-', markersize=10, linewidth=2, color='red')
+        axes2[1].set_xlabel('EPS (Convergence Tolerance)', fontsize=12)
+        axes2[1].set_ylabel(f'{labels[variable_idx]} at η→∞', fontsize=12)
+        axes2[1].set_title('Final Value vs Convergence Tolerance', fontsize=12)
+        axes2[1].grid(True, alpha=0.7)
+        axes2[1].invert_xaxis()
+    
+    # plt.tight_layout()
+    
+    return {'results': results_per_eps, 'variable': labels[variable_idx]}
+
+# ===== Example usage of analysis functions =====
+# Uncomment to run sensitivity and convergence analysis
+
+# Example 1: Plot iterations vs H for a specific scenario
+H_test_array = [0.001, 0.005, 0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
+plot_iterations_vs_H(H_test_array, lamda_val=2, fw_val=-1, oneOverC_val=2)
+
+# Example 2: Plot sensitivity to EPS for theta (shooting method)
+EPS_test_array = [1e-3, 1e-4, 1e-5, 1e-6]
+plot_sensitivity_vs_EPS(EPS_test_array, variable_idx=2, lamda_val=0.5, fw_val=0, 
+                        oneOverC_val=2, method='shooting', H_val=0.001)
+
+# Example 3: Plot sensitivity to EPS for f' (finite difference method)
+EPS_test_array = [1e-2, 5e-3, 1e-3, 5e-4, 1e-4, 5e-5, 1e-5]
+plot_sensitivity_vs_EPS(EPS_test_array, variable_idx=0, lamda_val=2.0, fw_val=1, 
+                        oneOverC_val=5, method='shooting', H_val=0.01)
 
 plt.show()

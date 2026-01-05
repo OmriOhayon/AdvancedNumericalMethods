@@ -441,7 +441,7 @@ def integrate_f_from_theta(eta, theta, lamda, C_PARAM_FINAL, fwToUse, H):
     
     return f, fp, fpp
 
-def gauss_seidel_theta_sweep(theta, f, fp, lamda, H, STEPS, omega=0.8):
+def gauss_seidel_theta_sweep(theta, f, fp, lamda, H, STEPS, omega=1.5):
     """Perform one Gauss-Seidel sweep for theta using equation (9).
     
     Solves the discretized equation (9): θ'' + p*θ' + q*θ = 0
@@ -495,7 +495,7 @@ def gauss_seidel_theta_sweep(theta, f, fp, lamda, H, STEPS, omega=0.8):
     
     return theta
 
-def finite_difference_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS=1e-5, H_input=0.1, omega_input=0.8):
+def finite_difference_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS=1e-5, H_input=0.1, omega_input=1.5):
     """Solve boundary value problem using finite difference method with iterative solving.
     
     Uses a block iteration scheme where f is integrated from equation (8) and theta
@@ -732,31 +732,31 @@ def plot_comparison(variable_idx, filter_lambda=None, filter_fw=None, filter_one
     
     ax.set_xlabel(r'$\eta$')
     ax.set_ylabel(labels[variable_idx])
-    ax.set_title(labels[variable_idx])
+    # ax.set_title(labels[variable_idx])
     # Normal legend placement (inside axes) + tight layout to avoid clipping.
     ax.legend(loc='best', fontsize='small')
     # fig.tight_layout()
 
-# Example plots - uncomment the ones you want:
+# # Example plots - uncomment the ones you want:
 
-# # Plot all theta (variable_idx=2) for all fw values
-plot_comparison(2, filter_lambda=None, filter_fw=None, filter_oneOverC=None)
+# # # Plot all theta (variable_idx=2) for all fw values
+# plot_comparison(2, filter_lambda=None, filter_fw=None, filter_oneOverC=None)
 
-# Plot all f' (variable_idx=1) for all runs
-plot_comparison(1)
+# # Plot all f' (variable_idx=1) for all runs
+# plot_comparison(1)
 
-# Plot theta' (variable_idx=3) for oneOverC=2
-plot_comparison(3, filter_oneOverC=None)
+# # Plot theta' (variable_idx=3) for oneOverC=2
+# plot_comparison(3, filter_oneOverC=None)
 
-# Plot theta for fw=1 only
-# plot_comparison(2, filter_fw=1)
+# # Plot theta for fw=1 only
+# # plot_comparison(2, filter_fw=1)
 
-# Plot f for lambda=0.5, fw=0
-plot_comparison(0, filter_lambda=None, filter_fw=None)
+# # Plot f for lambda=0.5, fw=0
+# plot_comparison(0, filter_lambda=None, filter_fw=None)
 
 
 def plot_iterations_vs_H(H_array, lamda_val, fw_val, oneOverC_val, 
-                          plot_shooting=True, plot_fd=True):
+                          plot_shooting=True, plot_fd=True, EPS=1e-5):
     """Plot number of iterations vs step size H for a specific scenario.
     
     Args:
@@ -788,14 +788,14 @@ def plot_iterations_vs_H(H_array, lamda_val, fw_val, oneOverC_val,
             print(f"  Running Shooting Method with H={H_val}...")
             _, _, iter_shoot = shooting_method(lambdaArr, fwArr, oneOverCArr, 
                                                 initGuessArray, TARGET_THETA, 
-                                                EPS=1e-6, H_input=H_val)
+                                                EPS=EPS, H_input=H_val)
             shooting_iters.append(iter_shoot[0] if iter_shoot else 0)
         
         if plot_fd:
             print(f"  Running Finite Difference Method with H={H_val}...")
             _, _, iter_fd = finite_difference_method(lambdaArr, fwArr, oneOverCArr, 
                                                       initGuessArray, TARGET_THETA, 
-                                                      EPS=1e-4, H_input=H_val)
+                                                      EPS=EPS, H_input=H_val)
             fd_iters.append(iter_fd[0] if iter_fd else 0)
     
     # Plotting
@@ -811,7 +811,7 @@ def plot_iterations_vs_H(H_array, lamda_val, fw_val, oneOverC_val,
     
     ax.set_xlabel('Step Size (H)', fontsize=12)
     ax.set_ylabel('Number of Iterations', fontsize=12)
-    ax.set_title(f'Iterations vs H for λ={lamda_val}, fw={fw_val}, 1/C={oneOverC_val}', fontsize=14)
+    # ax.set_title(f'Iterations vs H for λ={lamda_val}, fw={fw_val}, 1/C={oneOverC_val}', fontsize=14)
     ax.grid(True, alpha=0.7)
     ax.legend(loc='best', fontsize=10)
     
@@ -887,38 +887,41 @@ def plot_sensitivity_vs_EPS(EPS_array, variable_idx, lamda_val, fw_val, oneOverC
     ax.set_xlabel(r'$\eta$', fontsize=12)
     ax.set_ylabel(labels[variable_idx], fontsize=12)
     method_name = 'Shooting' if method.lower() == 'shooting' else 'Finite Difference'
-    ax.set_title(f'Sensitivity Analysis: {labels[variable_idx]} vs ' + r'$\eta$' + f'\n{method_name} Method - λ={lamda_val}, fw={fw_val}, 1/C={oneOverC_val}, H={H_val}', 
-                 fontsize=12)
+    # ax.set_title(f'Sensitivity Analysis: {labels[variable_idx]} vs ' + r'$\eta$' + f'\n{method_name} Method - λ={lamda_val}, fw={fw_val}, 1/C={oneOverC_val}, H={H_val}', 
+    #              fontsize=12)
     ax.grid(True, alpha=0.7)
     ax.legend(loc='best', fontsize=9)
     
     # plt.tight_layout()
     
-    # Create a second plot showing convergence behavior
-    fig2, axes2 = plt.subplots(1, 2, figsize=(14, 5))
+    # Create second plot: iterations vs EPS
+    fig2, ax2 = plt.subplots(figsize=(10, 6))
     
     # Plot iterations vs EPS
     eps_values = [r['EPS'] for r in results_per_eps]
     iter_values = [r['iterations'] for r in results_per_eps]
     
-    # axes2[0].semilogx(eps_values, iter_values, 'o-', markersize=10, linewidth=2)
-    axes2[0].plot(eps_values, iter_values, 'o-', markersize=10, linewidth=2)
-    axes2[0].set_xlabel('EPS (Convergence Tolerance)', fontsize=12)
-    axes2[0].set_ylabel('Number of Iterations', fontsize=12)
-    axes2[0].set_title('Iterations vs Convergence Tolerance', fontsize=12)
-    axes2[0].grid(True, alpha=0.7)
-    axes2[0].invert_xaxis()  # Show smaller EPS on right (tighter tolerance)
+    # ax2.semilogx(eps_values, iter_values, 'o-', markersize=10, linewidth=2)
+    ax2.plot(eps_values, iter_values, 'o-', markersize=10, linewidth=2)
+    ax2.set_xlabel('EPS (Convergence Tolerance)', fontsize=12)
+    ax2.set_ylabel('Number of Iterations', fontsize=12)
+    # ax2.set_title('Iterations vs Convergence Tolerance', fontsize=12)
+    ax2.grid(True, alpha=0.7)
+    ax2.invert_xaxis()  # Show smaller EPS on right (tighter tolerance)
+    
+    # Create third plot: final value at eta_inf vs EPS
+    fig3, ax3 = plt.subplots(figsize=(10, 6))
     
     # Plot final value at eta_inf vs EPS (to check convergence)
     if len(results_per_eps) >= 2:
         final_values = [r['values'][-1] for r in results_per_eps]
-        # axes2[1].semilogx(eps_values, final_values, 's-', markersize=10, linewidth=2, color='red')
-        axes2[1].plot(eps_values, final_values, 's-', markersize=10, linewidth=2, color='red')
-        axes2[1].set_xlabel('EPS (Convergence Tolerance)', fontsize=12)
-        axes2[1].set_ylabel(f'{labels[variable_idx]} at ' + r'$\eta \rightarrow \infty$', fontsize=12)
-        axes2[1].set_title('Final Value vs Convergence Tolerance', fontsize=12)
-        axes2[1].grid(True, alpha=0.7)
-        axes2[1].invert_xaxis()
+        # ax3.semilogx(eps_values, final_values, 's-', markersize=10, linewidth=2, color='red')
+        ax3.plot(eps_values, final_values, 's-', markersize=10, linewidth=2, color='red')
+        ax3.set_xlabel('EPS (Convergence Tolerance)', fontsize=12)
+        ax3.set_ylabel(f'{labels[variable_idx]} at ' + r'$\eta \rightarrow \infty$', fontsize=12)
+        # ax3.set_title('Final Value vs Convergence Tolerance', fontsize=12)
+        ax3.grid(True, alpha=0.7)
+        ax3.invert_xaxis()
     
     # plt.tight_layout()
     
@@ -975,57 +978,59 @@ def plot_relaxation_comparison(omega_array, lamda_val, fw_val, oneOverC_val,
                 'converged': converged
             })
     
-    # Create figure with 3 subplots
-    fig, axes = plt.subplots(1, 3, figsize=(16, 5))
+    # Create figure 1: Solution profiles for each omega
+    fig1, ax1 = plt.subplots(figsize=(10, 6))
     
     # Plot 1: Solution profiles for each omega
     for idx, result in enumerate(results_per_omega):
         status = "" if result['converged'] else " (not conv.)"
-        axes[0].plot(result['eta'], result['values'], 
+        ax1.plot(result['eta'], result['values'], 
                      color=colors[idx], linewidth=2,
                      label=f"ω={result['omega']}, iters={result['iterations']}{status}")
     
-    axes[0].set_xlabel(r'$\eta$', fontsize=12)
-    axes[0].set_ylabel(labels[variable_idx], fontsize=12)
-    axes[0].set_title(f'{labels[variable_idx]} vs ' + r'$\eta$' + r' for different $\omega$', fontsize=12)
-    axes[0].grid(True, alpha=0.7)
-    axes[0].legend(loc='best', fontsize=9)
+    ax1.set_xlabel(r'$\eta$', fontsize=12)
+    ax1.set_ylabel(labels[variable_idx], fontsize=12)
+    # ax1.set_title(f'{labels[variable_idx]} vs ' + r'$\eta$' + r' for different $\omega$', fontsize=12)
+    ax1.grid(True, alpha=0.7)
+    ax1.legend(loc='best', fontsize=9)
     
-    # Plot 2: Iterations vs omega (bar chart)
+    # Create figure 2: Iterations vs omega (bar chart)
+    fig2, ax2 = plt.subplots(figsize=(10, 6))
+    
     omega_vals = [r['omega'] for r in results_per_omega]
     iter_vals = [r['iterations'] for r in results_per_omega]
     bar_colors = ['green' if r['converged'] else 'red' for r in results_per_omega]
     
-    bars = axes[1].bar(range(len(omega_vals)), iter_vals, color=bar_colors, alpha=0.7, edgecolor='black')
-    axes[1].set_xticks(range(len(omega_vals)))
-    axes[1].set_xticklabels([f'{o}' for o in omega_vals])
-    axes[1].set_xlabel(r'Relaxation Parameter ($\omega$)', fontsize=12)
-    axes[1].set_ylabel('Number of Iterations', fontsize=12)
-    axes[1].set_title(r'Iterations to Convergence vs $\omega$', fontsize=12)
-    axes[1].grid(True, alpha=0.7, axis='y')
+    bars = ax2.bar(range(len(omega_vals)), iter_vals, color=bar_colors, alpha=0.7, edgecolor='black')
+    ax2.set_xticks(range(len(omega_vals)))
+    ax2.set_xticklabels([f'{o}' for o in omega_vals])
+    ax2.set_xlabel(r'Relaxation Parameter ($\omega$)', fontsize=12)
+    ax2.set_ylabel('Number of Iterations', fontsize=12)
+    ax2.set_title(r'Iterations to Convergence vs $\omega$', fontsize=12)
+    ax2.grid(True, alpha=0.7, axis='y')
     
     # Add value labels on bars
     for bar, val in zip(bars, iter_vals):
-        axes[1].text(bar.get_x() + bar.get_width()/2, bar.get_height() + 50, 
-                     f'{val}', ha='center', va='bottom', fontsize=10)
+        ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 50, 
+                 f'{val}', ha='center', va='bottom', fontsize=10)
     
-    # Plot 3: Iterations vs omega (line plot for trend)
-    axes[2].plot(omega_vals, iter_vals, 'o-', markersize=10, linewidth=2, color='blue')
-    axes[2].set_xlabel(r'Relaxation Parameter ($\omega$)', fontsize=12)
-    axes[2].set_ylabel('Number of Iterations', fontsize=12)
-    axes[2].set_title(r'Convergence Rate vs $\omega$', fontsize=12)
-    axes[2].grid(True, alpha=0.7)
+    # Create figure 3: Iterations vs omega (line plot for trend)
+    fig3, ax3 = plt.subplots(figsize=(10, 6))
+    
+    ax3.plot(omega_vals, iter_vals, 'o-', markersize=10, linewidth=2, color='blue')
+    ax3.set_xlabel(r'Relaxation Parameter ($\omega$)', fontsize=12)
+    ax3.set_ylabel('Number of Iterations', fontsize=12)
+    ax3.set_title(r'Convergence Rate vs $\omega$', fontsize=12)
+    ax3.grid(True, alpha=0.7)
     
     # Mark optimal omega
     converged_results = [r for r in results_per_omega if r['converged']]
     if converged_results:
         min_iter_result = min(converged_results, key=lambda x: x['iterations'])
-        axes[2].axvline(x=min_iter_result['omega'], color='green', linestyle='--', 
-                        label=r"Optimal $\omega$=" + f"{min_iter_result['omega']}")
-        axes[2].legend(loc='best', fontsize=10)
+        ax3.axvline(x=min_iter_result['omega'], color='green', linestyle='--', 
+                    label=r"Optimal $\omega$=" + f"{min_iter_result['omega']}")
+        ax3.legend(loc='best', fontsize=10)
     
-    fig.suptitle(r'Relaxation Parameter Comparison' + f'\n\u03bb={lamda_val}, fw={fw_val}, 1/C={oneOverC_val}, H={H_val}, EPS={EPS_val:.0e}', 
-                 fontsize=14, y=1.02)
     plt.tight_layout()
     
     return {'omega_array': omega_vals, 'iterations': iter_vals, 'results': results_per_omega}
@@ -1033,9 +1038,9 @@ def plot_relaxation_comparison(omega_array, lamda_val, fw_val, oneOverC_val,
 # ===== Example usage of analysis functions =====
 # Uncomment to run sensitivity and convergence analysis
 
-# Example 1: Plot iterations vs H for a specific scenario
-H_test_array = [0.001, 0.005, 0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
-plot_iterations_vs_H(H_test_array, lamda_val=2, fw_val=-1, oneOverC_val=2)
+# # Example 1: Plot iterations vs H for a specific scenario
+# H_test_array = [0.001, 0.005, 0.01, 0.05, 0.1]
+# plot_iterations_vs_H(H_test_array, lamda_val=2, fw_val=-1, oneOverC_val=2, EPS=1e-5)
 
 # Example 2: Plot sensitivity to EPS for theta (shooting method)
 EPS_test_array = [1e-2, 5e-3, 1e-3, 5e-4, 1e-4, 5e-5, 1e-5]
@@ -1045,11 +1050,21 @@ plot_sensitivity_vs_EPS(EPS_test_array, variable_idx=2, lamda_val=2, fw_val=-1,
 # Example 3: Plot sensitivity to EPS for f (finite difference method)
 EPS_test_array = [1e-2, 5e-3, 1e-3, 5e-4, 1e-4, 5e-5, 1e-5]
 plot_sensitivity_vs_EPS(EPS_test_array, variable_idx=0, lamda_val=2.0, fw_val=-1, 
-                        oneOverC_val=5, method='shooting', H_val=0.01)
+                        oneOverC_val=5, method='shooting', H_val=0.001)
 
-# Example 4: Plot relaxation parameter comparison for Gauss-Seidel
-omega_test_array = [0.3, 0.5, 0.8, 1.0, 1.2, 1.5, 2.0]
-plot_relaxation_comparison(omega_test_array, lamda_val=2, fw_val=-1, oneOverC_val=5, 
-                           variable_idx=2, H_val=0.01, EPS_val=1e-5)
+# Example 2: Plot sensitivity to EPS for theta (shooting method)
+EPS_test_array = [1e-2, 5e-3, 1e-3, 5e-4, 1e-4, 5e-5, 1e-5]
+plot_sensitivity_vs_EPS(EPS_test_array, variable_idx=2, lamda_val=2, fw_val=-1, 
+                        oneOverC_val=5, method='fd', H_val=0.001)
+
+# Example 3: Plot sensitivity to EPS for f (finite difference method)
+EPS_test_array = [1e-2, 5e-3, 1e-3, 5e-4, 1e-4, 5e-5, 1e-5]
+plot_sensitivity_vs_EPS(EPS_test_array, variable_idx=0, lamda_val=2.0, fw_val=-1, 
+                        oneOverC_val=5, method='fd', H_val=0.001)
+
+# # Example 4: Plot relaxation parameter comparison for Gauss-Seidel
+# omega_test_array = [0.3, 0.5, 0.8, 1.0, 1.2, 1.5, 2.0]
+# plot_relaxation_comparison(omega_test_array, lamda_val=2, fw_val=-1, oneOverC_val=5, 
+#                            variable_idx=2, H_val=0.01, EPS_val=1e-5)
 
 plt.show()

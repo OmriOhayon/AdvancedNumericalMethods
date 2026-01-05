@@ -1,6 +1,5 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import scipy.integrate as integrate
 
 def calc_ddf(lamda, eta, dtheta, theta):
     """Calculate the second derivative of f (equation 8 from the paper).
@@ -317,9 +316,7 @@ def shooting_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS
                 fTagError = dfFinal - C_PARAM_FINAL
                 thetaError = thetaFinal - TARGET_THETA
                 errors = np.array([fTagError, thetaError], dtype=float)
-                errNorm = np.linalg.norm(errors)
-
-                # errNorm = np.sqrt(fTagError**2 + thetaError**2)
+                errNorm = max(abs(fTagError), abs(thetaError))
                 
                 if errNorm <= EPS:
                     print(f"Converged for Lambda={lamda}, fw={fw_val}, C={c}. Error Norm={errNorm}")
@@ -342,7 +339,7 @@ def shooting_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS
                     dfFinal = Y[-1, 1]
                     thetaFinal = Y[-1, 2]
                     errors = np.array([dfFinal - C_PARAM_FINAL, thetaFinal - TARGET_THETA], dtype=float)
-                    errNorm = np.linalg.norm(errors)
+                    errNorm = max(abs(errors[0]), abs(errors[1]))
 
                     if errNorm <= EPS:
                         print(f"Converged for Lambda={lamda}, fw={fw_val}, C={c}. Final Error Norm={errNorm}, Iterations={iteration_count}")
@@ -374,6 +371,130 @@ def shooting_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS
 
     return resArray, paramsArray, iterationsArray
 
+def cumulative_trapezoid_integration(y, h):
+    """Compute cumulative trapezoidal integration from 0 to each point.
+    
+    Args:
+        y (np.ndarray): Array of function values to integrate.
+        h (float): Step size (uniform spacing).
+    
+    Returns:
+        np.ndarray: Cumulative integral values, with out[0] = 0.
+    """
+    out = np.zeros_like(y)
+    out[1:] = np.cumsum(0.5 * (y[1:] + y[:-1]) * h)
+    return out
+
+def central_difference_derivative(y, h):
+    """Compute first derivative using central differences with 2nd-order one-sided boundaries.
+    
+    Args:
+        y (np.ndarray): Array of function values.
+        h (float): Step size (uniform spacing).
+    
+    Returns:
+        np.ndarray: First derivative dy/dx at each point.
+    """
+    dy = np.zeros_like(y)
+    # Central difference for interior points
+    dy[1:-1] = (y[2:] - y[:-2]) / (2.0 * h)
+    # 2nd-order one-sided at boundaries
+    dy[0] = (-3*y[0] + 4*y[1] - y[2]) / (2.0 * h)
+    dy[-1] = (3*y[-1] - 4*y[-2] + y[-3]) / (2.0 * h)
+    return dy
+
+def integrate_f_from_theta(eta, theta, lamda, C_PARAM_FINAL, fwToUse, H):
+    """Integrate f from equation (8) using current theta distribution.
+    
+    Computes f'' from equation (8): f'' = -((λ-2)/3 * η * θ' + λ * θ)
+    Then integrates twice to get f' and f.
+    
+    Args:
+        eta (np.ndarray): Array of eta (similarity variable) values.
+        theta (np.ndarray): Current temperature distribution.
+        lamda (float): Lambda parameter.
+        C_PARAM_FINAL (float): Target f'(∞) boundary condition (C^(-2/3)).
+        fwToUse (float): Initial value f(0) = fw * C^(1/3).
+        H (float): Step size.
+    
+    Returns:
+        tuple: (f, fp, fpp) where:
+            - f: Stream function values.
+            - fp: First derivative f' values.
+            - fpp: Second derivative f'' values.
+    """
+    # Compute theta derivative
+    dtheta = central_difference_derivative(theta, H)
+    
+    # Equation (8): f'' = -((λ-2)/3 * η * θ' + λ * θ)
+    fpp = -(((lamda - 2.0) / 3.0) * eta * dtheta + lamda * theta)
+    
+    # Enforce far-field slope: fp(0) = fp_inf - ∫_0^∞ f'' dη
+    I = np.trapz(fpp, x=eta)
+    fp0 = C_PARAM_FINAL - I
+    
+    # Integrate f'' to get f'
+    fp = fp0 + cumulative_trapezoid_integration(fpp, H)
+    
+    # Integrate f' to get f
+    f = fwToUse + cumulative_trapezoid_integration(fp, H)
+    
+    return f, fp, fpp
+
+def gauss_seidel_theta_sweep(theta, f, fp, lamda, H, STEPS, omega=0.8):
+    """Perform one Gauss-Seidel sweep for theta using equation (9).
+    
+    Solves the discretized equation (9): θ'' + p*θ' + q*θ = 0
+    where p = (λ+1)/3 * f and q = -λ * f'
+    
+    Uses central differences for θ'' and θ', leading to:
+    (1/h² - p/(2h)) * θ[i-1] + (-2/h² + q) * θ[i] + (1/h² + p/(2h)) * θ[i+1] = 0
+    
+    Args:
+        theta (np.ndarray): Current theta distribution (modified in place).
+        f (np.ndarray): Stream function values.
+        fp (np.ndarray): First derivative f' values.
+        lamda (float): Lambda parameter.
+        H (float): Step size.
+        STEPS (int): Number of grid points.
+        omega (float, optional): Relaxation factor for SOR. Defaults to 0.8.
+    
+    Returns:
+        np.ndarray: Updated theta distribution.
+    """
+    inv_h2 = 1.0 / (H * H)
+    inv_2h = 1.0 / (2.0 * H)
+    
+    # Boundary conditions
+    theta[0] = 1.0
+    theta[-1] = 0.0
+    
+    # Gauss-Seidel sweep for interior points
+    for i in range(1, STEPS - 1):
+        # Coefficients from equation (9)
+        p = ((lamda + 1.0) / 3.0) * f[i]
+        q = -lamda * fp[i]
+        
+        coeff_minus = inv_h2 - p * inv_2h
+        coeff_plus = inv_h2 + p * inv_2h
+        denom = -2.0 * inv_h2 + q
+        
+        # Safety check for near-zero denominator
+        if abs(denom) < 1e-300:
+            denom = np.copysign(1e-300, denom)
+        
+        # Compute new value
+        val = -(coeff_minus * theta[i - 1] + coeff_plus * theta[i + 1]) / denom
+        
+        # Apply relaxation (SOR)
+        theta[i] = (1.0 - omega) * theta[i] + omega * val
+    
+    # Re-enforce boundary conditions
+    theta[0] = 1.0
+    theta[-1] = 0.0
+    
+    return theta
+
 def finite_difference_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS=1e-5, H_input=0.1):
     """Solve boundary value problem using finite difference method with iterative solving.
     
@@ -404,20 +525,6 @@ def finite_difference_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_T
     full_lambda = [0.5, 2.0]
     full_fw = [-1.0, 0.0, 1.0]
     full_oneOverC = [1.0, 2.0, 5.0, 8.0]
-
-    def cumtrapz(y, h):
-        # cumulative trapezoid integral from 0..i
-        out = np.zeros_like(y)
-        out[1:] = np.cumsum(0.5 * (y[1:] + y[:-1]) * h)
-        return out
-
-    def d1_center(y, h):
-        dy = np.zeros_like(y)
-        dy[1:-1] = (y[2:] - y[:-2]) / (2.0 * h)
-        # 2nd-order one-sided at boundaries
-        dy[0]  = (-3*y[0] + 4*y[1] - y[2]) / (2.0*h)
-        dy[-1] = ( 3*y[-1] - 4*y[-2] + y[-3]) / (2.0*h)
-        return dy
 
     for lamda in lambdaArray:
         for fw_val in fw:
@@ -467,8 +574,6 @@ def finite_difference_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_T
 
                 omega_theta = 0.8  # relaxation inside theta GS sweep
                 omega_block = 1.0  # optional block relaxation (theta <- mix(theta_old, theta_new))
-                inv_h2 = 1.0 / (H * H)
-                inv_2h = 1.0 / (2.0 * H)
 
                 converged = False
                 for k in range(MAX_ITER):
@@ -476,40 +581,10 @@ def finite_difference_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_T
                     f_old = f.copy()
 
                     # ===== Block 1: integrate f from eq (8) using current theta =====
-                    dtheta = d1_center(theta, H)
-
-                    # eq (8): f'' = -((λ-2)/3 * η * θ' + λ θ)
-                    fpp = -(((LAMBDA - 2.0) / 3.0) * eta * dtheta + LAMBDA * theta)
-
-                    # enforce far-field slope: fp(0) = fp_inf - ∫_0^∞ f'' dη
-                    I = np.trapz(fpp, x=eta)
-                    fp0 = C_PARAM_FINAL - I
-
-                    fp = fp0 + cumtrapz(fpp, H)
-                    f = fwToUse + cumtrapz(fp, H)
+                    f, fp, fpp = integrate_f_from_theta(eta, theta, LAMBDA, C_PARAM_FINAL, fwToUse, H)
 
                     # ===== Block 2: GS sweep for theta from eq (9) using updated f, fp =====
-                    theta[0] = 1.0
-                    theta[-1] = 0.0
-
-                    for i in range(1, STEPS - 1):
-                        # eq (9): theta'' + p theta' + q theta = 0
-                        p = ((LAMBDA + 1.0) / 3.0) * f[i]
-                        q = -LAMBDA * fp[i]
-
-                        coeff_minus = inv_h2 - p * inv_2h
-                        coeff_plus  = inv_h2 + p * inv_2h
-                        denom = -2.0 * inv_h2 + q
-
-                        # safety
-                        if abs(denom) < 1e-300:
-                            denom = np.copysign(1e-300, denom)
-
-                        val = -(coeff_minus * theta[i - 1] + coeff_plus * theta[i + 1]) / denom
-                        theta[i] = (1.0 - omega_theta) * theta[i] + omega_theta * val
-
-                    theta[0] = 1.0
-                    theta[-1] = 0.0
+                    theta = gauss_seidel_theta_sweep(theta, f, fp, LAMBDA, H, STEPS, omega=omega_theta)
 
                     # optional block relaxation on theta (helps if oscillatory)
                     if omega_block < 1.0:
@@ -526,7 +601,7 @@ def finite_difference_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_T
 
                     if max(err_theta, err_f) < EPS:
                         print(f"  Converged in {k} iterations.")
-                        dtheta_out = d1_center(theta, H)
+                        dtheta_out = central_difference_derivative(theta, H)
                         resArray.append([eta, np.asarray([f, fp, theta, dtheta_out]).T])
                         paramsArray.append({'lambda': lamda, 'fw': fw_val, 'oneOverC': c})
                         iterationsArray.append(k)
@@ -535,19 +610,13 @@ def finite_difference_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_T
 
                 if not converged:
                     print("Did not converge.")
-                    dtheta_out = d1_center(theta, H)
+                    dtheta_out = central_difference_derivative(theta, H)
                     resArray.append([eta, np.asarray([f, fp, theta, dtheta_out]).T])
                     paramsArray.append({'lambda': lamda, 'fw': fw_val, 'oneOverC': c})
                     iterationsArray.append(MAX_ITER)
 
     return resArray, paramsArray, iterationsArray
 
-def gauss_seidel_method():
-    """Placeholder for Gauss-Seidel method implementation.
-    
-    This function is currently not implemented.
-    """
-    pass
 
 data = [ # ערכי ההתחלה מהמאמר
     # --- Lambda = 0.5 ---
@@ -602,7 +671,7 @@ labels = ['f(eta)', "f '(eta)", 'theta(eta)', "theta '(eta)"]
 print("Running Shooting Method...")
 resArray_shooting, paramsArray_shooting, iterArray_shooting = shooting_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS=1e-5, H_input=0.1)
 print("\nRunning Finite Difference Method...")
-resArray_fd, paramsArray_fd, iterArray_fd = finite_difference_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS=1e-4, H_input=0.1)
+resArray_fd, paramsArray_fd, iterArray_fd = finite_difference_method(lambdaArray, fw, oneOverC, initGuessArray, TARGET_THETA, EPS=1e-5, H_input=0.1)
 
 # Flexible plotting function
 def plot_comparison(variable_idx, filter_lambda=None, filter_fw=None, filter_oneOverC=None, 

@@ -1,6 +1,42 @@
-
 import numpy as np
 import matplotlib.pyplot as plt
+
+from datetime import datetime
+from pathlib import Path
+import re
+
+OUTPUT_DIR = None
+
+
+def init_output_dir(prefix="run"):
+    """Create (once per execution) an output directory named with current date-time."""
+    global OUTPUT_DIR
+    if OUTPUT_DIR is not None:
+        return OUTPUT_DIR
+
+    stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    out_dir = Path.cwd() / f"{prefix}_{stamp}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    OUTPUT_DIR = out_dir
+    print(f"\n[io] Saving figures to: {out_dir.resolve()}\n")
+    return OUTPUT_DIR
+
+
+def _safe_name(name: str) -> str:
+    name = name.strip().replace(" ", "_")
+    name = re.sub(r"[^A-Za-z0-9_\-\.]+", "", name)
+    return name
+
+
+def save_figure(fig, filename: str, dpi: int = 200):
+    """Save a Matplotlib figure into the per-run output directory."""
+    out_dir = init_output_dir(prefix="figures")
+    fname = _safe_name(filename)
+    if not fname.lower().endswith(".png"):
+        fname += ".png"
+    path = out_dir / fname
+    fig.savefig(path, dpi=dpi, bbox_inches="tight")
+    print(f"[io] saved: {path.name}")
 
 
 # =========================
@@ -335,7 +371,7 @@ def adi_cn_step(Tn, alpha, q, dt, dx, dy, bc):
 
 
 def run_plate(alpha=4e-6, L=0.3, q=0.0,
-              Nx=30, Ny=30, dt=1.0,
+              Nx=51, Ny=51, dt=1.0,
               t_final=5000.0,
               T_init=60.0,
               bc=None,
@@ -478,6 +514,7 @@ def plot_snapshots(result, title_prefix=""):
         ax.set_title(f"{title_prefix}T(x,y) at t={t:.3g} s")
         fig.colorbar(im, ax=ax, label="Temperature [°C]")
         fig.tight_layout()
+        save_figure(fig, f"{title_prefix.strip()}snapshot_t_{t:.6g}s")
 
 
 def plot_center_temperature(result, title="Center temperature vs time"):
@@ -497,6 +534,7 @@ def plot_center_temperature(result, title="Center temperature vs time"):
         ax.axvline(steady_time, linestyle="--", linewidth=2, label=f"steady @ {steady_time:.3g}s")
         ax.legend(loc="best")
     fig.tight_layout()
+    save_figure(fig, _safe_name(title))
 
 
 def parameter_study():
@@ -524,21 +562,24 @@ def parameter_study():
     # dt sweep
     dt_list = [2.0, 1.0, 0.5, 0.25]
     fig, ax = plt.subplots(figsize=(8, 4.8))
-    for dt in dt_list:
+    for i, dt in enumerate(dt_list, start=1):
+        print(f"  [dt sweep] {i}/{len(dt_list)}: dt={dt:g}s")
         res = run_plate(alpha=alpha, L=L, q=q, Nx=30, Ny=30, dt=dt, t_final=6000.0,
                         T_init=60.0, bc=bc_dirichlet, steady_tol=1e-6, steady_window=20, verbose=False)
         ax.plot(res["times"], res["center_T"], linewidth=2, label=f"dt={dt:g}s")
     ax.set_xlabel("t [s]")
     ax.set_ylabel("T_center [°C]")
-    ax.set_title("dt sensitivity (Nx=Ny=81)")
+    ax.set_title("dt sensitivity (Nx=Ny=30)")
     ax.grid(True, alpha=0.6)
     ax.legend(loc="best")
     fig.tight_layout()
+    save_figure(fig, "param_dt_sensitivity")
 
     # Grid sweep
     grid_list = [10, 20, 30, 40, 50]
     fig, ax = plt.subplots(figsize=(8, 4.8))
-    for N in grid_list:
+    for i, N in enumerate(grid_list, start=1):
+        print(f"  [grid sweep] {i}/{len(grid_list)}: N={N}")
         res = run_plate(alpha=alpha, L=L, q=q, Nx=N, Ny=N, dt=0.5, t_final=6000.0,
                         T_init=60.0, bc=bc_dirichlet, steady_tol=1e-6, steady_window=20, verbose=False)
         ax.plot(res["times"], res["center_T"], linewidth=2, label=f"N={N}")
@@ -548,6 +589,7 @@ def parameter_study():
     ax.grid(True, alpha=0.6)
     ax.legend(loc="best")
     fig.tight_layout()
+    save_figure(fig, "param_grid_sensitivity")
 
     return ref
 
@@ -649,6 +691,7 @@ def main():
     ax.grid(True, alpha=0.6)
     ax.legend(loc="best")
     fig.tight_layout()
+    save_figure(fig, "center_temperature_comparison")
 
     # Param study figures
     parameter_study()

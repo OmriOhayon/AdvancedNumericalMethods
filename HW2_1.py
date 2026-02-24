@@ -335,13 +335,15 @@ def adi_cn_step(Tn, alpha, q, dt, dx, dy, bc):
 
 
 def run_plate(alpha=4e-6, L=0.3, q=0.0,
-              Nx=51, Ny=51, dt=1.0,
+              Nx=30, Ny=30, dt=1.0,
               t_final=5000.0,
               T_init=60.0,
               bc=None,
               steady_tol=1e-6,
               steady_window=20,
-              snapshot_times=None):
+              snapshot_times=None,
+              verbose=True,
+              progress_updates=20):
     """Run the transient 2D plate simulation.
 
     Args:
@@ -385,6 +387,13 @@ def run_plate(alpha=4e-6, L=0.3, q=0.0,
     steady_time = None
 
     n_steps = int(np.ceil(t_final / dt))
+    if progress_updates is None or progress_updates <= 0:
+        progress_stride = n_steps + 1
+    else:
+        progress_stride = max(1, n_steps // int(progress_updates))
+    if verbose:
+        print(f"[run_plate] start: Nx={Nx}, Ny={Ny}, dt={dt:g}s, t_final={t_final:g}s, steps={n_steps}")
+
     for n in range(1, n_steps + 1):
         t = n * dt
         Tn1 = adi_cn_step(T, alpha=alpha, q=q, dt=dt, dx=dx, dy=dy, bc=bc)
@@ -394,6 +403,8 @@ def run_plate(alpha=4e-6, L=0.3, q=0.0,
             steady_hits += 1
             if steady_hits >= steady_window and steady_time is None:
                 steady_time = t
+                if verbose:
+                    print(f"[run_plate] steady criterion met at t={t:.6g}s (|ΔT|_inf={diff_inf:.3e})")
         else:
             steady_hits = 0
 
@@ -407,11 +418,20 @@ def run_plate(alpha=4e-6, L=0.3, q=0.0,
             if abs(t - ts) <= 0.5 * dt:
                 snapshots[ts] = T.copy()
                 snap_set.remove(ts)
+                if verbose:
+                    print(f"[run_plate] snapshot captured at t={ts:g}s")
+
+        if verbose and (n == 1 or n == n_steps or (n % progress_stride) == 0):
+            pct = 100.0 * n / n_steps
+            remaining = len(snap_set)
+            print(f"[run_plate] {pct:6.2f}%  step {n}/{n_steps}  t={t:.6g}s  |ΔT|_inf={diff_inf:.3e}  remaining_snaps={remaining}")
 
         if steady_time is not None and t > max(snapshot_times):
             # If we've already reached steady and got requested snapshots, stop early.
             if len(snap_set) == 0:
                 break
+            if verbose:
+                print(f"[run_plate] early stop at t={t:.6g}s (steady + snapshots done)")
 
     return {
         "x": x,
@@ -480,6 +500,7 @@ def plot_center_temperature(result, title="Center temperature vs time"):
 
 
 def parameter_study():
+    print("\n=== Parameter study (dt/grid sensitivity) ===")
     """Minimal param study: dt and grid resolution effects on center temperature.
 
     This is not a full factorial sweep; it's meant to give you clean plots and numbers
@@ -497,15 +518,15 @@ def parameter_study():
     )
 
     # Fixed "reference-ish" run
-    ref = run_plate(alpha=alpha, L=L, q=q, Nx=81, Ny=81, dt=0.5, t_final=6000.0,
-                    T_init=60.0, bc=bc_dirichlet, steady_tol=1e-6, steady_window=20)
+    ref = run_plate(alpha=alpha, L=L, q=q, Nx=30, Ny=30, dt=0.5, t_final=6000.0,
+                    T_init=60.0, bc=bc_dirichlet, steady_tol=1e-6, steady_window=20, verbose=False)
 
     # dt sweep
     dt_list = [2.0, 1.0, 0.5, 0.25]
     fig, ax = plt.subplots(figsize=(8, 4.8))
     for dt in dt_list:
-        res = run_plate(alpha=alpha, L=L, q=q, Nx=81, Ny=81, dt=dt, t_final=6000.0,
-                        T_init=60.0, bc=bc_dirichlet, steady_tol=1e-6, steady_window=20)
+        res = run_plate(alpha=alpha, L=L, q=q, Nx=30, Ny=30, dt=dt, t_final=6000.0,
+                        T_init=60.0, bc=bc_dirichlet, steady_tol=1e-6, steady_window=20, verbose=False)
         ax.plot(res["times"], res["center_T"], linewidth=2, label=f"dt={dt:g}s")
     ax.set_xlabel("t [s]")
     ax.set_ylabel("T_center [°C]")
@@ -515,11 +536,11 @@ def parameter_study():
     fig.tight_layout()
 
     # Grid sweep
-    grid_list = [31, 51, 81, 121]
+    grid_list = [10, 20, 30, 40, 50]
     fig, ax = plt.subplots(figsize=(8, 4.8))
     for N in grid_list:
         res = run_plate(alpha=alpha, L=L, q=q, Nx=N, Ny=N, dt=0.5, t_final=6000.0,
-                        T_init=60.0, bc=bc_dirichlet, steady_tol=1e-6, steady_window=20)
+                        T_init=60.0, bc=bc_dirichlet, steady_tol=1e-6, steady_window=20, verbose=False)
         ax.plot(res["times"], res["center_T"], linewidth=2, label=f"N={N}")
     ax.set_xlabel("t [s]")
     ax.set_ylabel("T_center [°C]")
@@ -575,7 +596,7 @@ def main():
 
     res_a = run_plate(
         alpha=4e-6, L=0.3, q=0.0,
-        Nx=20, Ny=20,
+        Nx=30, Ny=30,
         dt=0.5,
         t_final=6000.0,
         T_init=60.0,
@@ -583,6 +604,8 @@ def main():
         steady_tol=1e-6,
         steady_window=30,
         snapshot_times=[0.0, 500.0, 1500.0, 3000.0, 6000.0],
+        verbose=True,
+        progress_updates=25,
     )
 
     plot_snapshots(res_a, title_prefix="Q1(a) ")
@@ -601,7 +624,7 @@ def main():
 
     res_b = run_plate(
         alpha=4e-6, L=0.3, q=0.0,
-        Nx=81, Ny=81,
+        Nx=30, Ny=30,
         dt=0.5,
         t_final=6000.0,
         T_init=60.0,
@@ -609,6 +632,8 @@ def main():
         steady_tol=1e-6,
         steady_window=30,
         snapshot_times=[0.0, 500.0, 1500.0, 3000.0, 6000.0],
+        verbose=True,
+        progress_updates=25,
     )
 
     plot_snapshots(res_b, title_prefix="Q1(b) ")

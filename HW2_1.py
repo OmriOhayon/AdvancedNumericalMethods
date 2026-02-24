@@ -422,6 +422,8 @@ def run_plate(alpha=4e-6, L=0.3, q=0.0,
     steady_hits = 0
     steady_time = None
 
+    diff_inf_hist = [0.0]
+
     n_steps = int(np.ceil(t_final / dt))
     if progress_updates is None or progress_updates <= 0:
         progress_stride = n_steps + 1
@@ -435,6 +437,7 @@ def run_plate(alpha=4e-6, L=0.3, q=0.0,
         Tn1 = adi_cn_step(T, alpha=alpha, q=q, dt=dt, dx=dx, dy=dy, bc=bc)
 
         diff_inf = np.max(np.abs(Tn1 - T))
+        diff_inf_hist.append(diff_inf)
         if diff_inf < steady_tol:
             steady_hits += 1
             if steady_hits >= steady_window and steady_time is None:
@@ -477,6 +480,7 @@ def run_plate(alpha=4e-6, L=0.3, q=0.0,
         "snapshots": snapshots,
         "T_final": T,
         "steady_time": steady_time,
+        "diff_inf": np.asarray(diff_inf_hist),
         "params": {
             "alpha": alpha,
             "L": L,
@@ -537,13 +541,41 @@ def plot_center_temperature(result, title="Center temperature vs time"):
     save_figure(fig, _safe_name(title))
 
 
+
+def plot_steady_metric(result, title="Steady-state convergence metric"):
+    """Plot max-norm change per step: ||T^{n+1}-T^n||_inf vs time.
+
+    This directly supports the steady-state criterion used in the solver:
+        steady when ||ΔT||_inf < steady_tol for steady_window consecutive steps.
+    """
+    t = result["times"]
+    diff = result["diff_inf"]
+
+    # diff has length len(times); first entry corresponds to t=0 (set to 0)
+    fig, ax = plt.subplots(figsize=(8, 4.8))
+    ax.semilogy(t, np.maximum(diff, 1e-20), linewidth=2)
+    tol = result["params"]["steady_tol"]
+    ax.axhline(tol, linestyle="--", linewidth=2, label=f"steady_tol={tol:g}")
+    ax.set_xlabel("t [s]")
+    ax.set_ylabel(r"$\|T^{n+1}-T^n\|_\infty$ [°C]")
+    ax.set_title(title)
+    ax.grid(True, which="both", alpha=0.6)
+
+    steady_time = result.get("steady_time", None)
+    if steady_time is not None:
+        ax.axvline(steady_time, linestyle="--", linewidth=2, label=f"steady @ {steady_time:.3g}s")
+    ax.legend(loc="best")
+    fig.tight_layout()
+    save_figure(fig, _safe_name(title))
+
+
 def parameter_study():
-    print("\n=== Parameter study (dt/grid sensitivity) ===")
     """Minimal param study: dt and grid resolution effects on center temperature.
 
     This is not a full factorial sweep; it's meant to give you clean plots and numbers
     you can discuss in the writeup.
     """
+    print("\n=== Parameter study (dt/grid sensitivity) ===")
     alpha = 4e-6
     L = 0.3
     q = 0.0
@@ -594,33 +626,46 @@ def parameter_study():
     return ref
 
 
-def stability_analysis_q2():
-    """Von Neumann stability analysis for Q2 scheme.
 
-    PDE on 0<=x<=1:
-        du/dt = alpha * d2u/dx2 , alpha>0
+def stability_analysis_q2(alpha=1.0, dt=1.0, h=0.1, do_plot=True):
+    """Von Neumann stability analysis for Q2 scheme (prints + optional plot).
 
-    Proposed scheme (as appears in the HW):
+    Proposed scheme:
         (u_m^{n+1} - u_m^{n-1}) / dt = (alpha/h^2) * (u_{m+1}^n - 2u_m^n + u_{m-1}^n)
 
-    Analysis:
-        Assume mode u_m^n = G^n * exp(i*k*m*h).
-        Then:
-            (G - G^{-1})/dt = (alpha/h^2) * (e^{ikh} -2 + e^{-ikh})
-                           = (alpha/h^2) * (-4 sin^2(kh/2))
-
-        Let mu = 4*alpha*dt/h^2 * sin^2(kh/2) >= 0.
-        Then:
-            G - G^{-1} = -mu
-            => G^2 + mu*G - 1 = 0
-            => G = (-mu ± sqrt(mu^2 + 4)) / 2
-
-        Since mu>=0:
-          - The roots are real and have product G1*G2 = -1
-          - Therefore |G1| * |G2| = 1, and one root must have |G| > 1 (unless mu=0 where |G|=1).
-        This implies the scheme is unstable for any nontrivial spatial frequency (mu>0).
+    Returns:
+        dict with mu grid and |G| for both roots.
     """
-    pass
+    print("\n=== Q2 Stability (Von Neumann) ===")
+    print("Scheme: (u^{n+1}_m - u^{n-1}_m)/dt = (alpha/h^2)(u^n_{m+1}-2u^n_m+u^n_{m-1})")
+    print("Assume u^n_m = G^n exp(i k m h).")
+    print("(G - G^{-1})/dt = (alpha/h^2)(e^{ikh}-2+e^{-ikh}) = -(4 alpha/h^2) sin^2(kh/2).")
+    print("Let mu = 4 alpha dt / h^2 * sin^2(kh/2) >= 0.")
+    print("Then G - G^{-1} = -mu  =>  G^2 + mu G - 1 = 0.")
+    print("Roots: G = (-mu ± sqrt(mu^2 + 4))/2, with product G1*G2 = -1.")
+    print("For any mu>0 (nontrivial mode), one root has |G|>1 -> unstable (no stable dt).")
+
+    # Numerical illustration: sweep mu in [0, mu_max]
+    mu = np.linspace(0.0, 20.0, 400)
+    Gp = (-mu + np.sqrt(mu**2 + 4.0)) / 2.0
+    Gm = (-mu - np.sqrt(mu**2 + 4.0)) / 2.0
+
+    out = {"mu": mu, "G_plus_abs": np.abs(Gp), "G_minus_abs": np.abs(Gm)}
+
+    if do_plot:
+        fig, ax = plt.subplots(figsize=(8, 4.8))
+        ax.plot(mu, out["G_plus_abs"], linewidth=2, label=r"$|G_+|$")
+        ax.plot(mu, out["G_minus_abs"], linewidth=2, label=r"$|G_-|$")
+        ax.axhline(1.0, linestyle="--", linewidth=2, label="|G|=1")
+        ax.set_xlabel(r"$\mu = 4\alpha\Delta t/h^2\,\sin^2(kh/2)$")
+        ax.set_ylabel(r"$|G|$")
+        ax.set_title("Q2: amplification factors (one exceeds 1 for any μ>0)")
+        ax.grid(True, alpha=0.6)
+        ax.legend(loc="best")
+        fig.tight_layout()
+        save_figure(fig, "Q2_stability_amplification_factors")
+
+    return out
 
 
 def main():
@@ -652,6 +697,7 @@ def main():
 
     plot_snapshots(res_a, title_prefix="Q1(a) ")
     plot_center_temperature(res_a, title="Q1(a) Center temperature vs time (Dirichlet top+right)")
+    plot_steady_metric(res_a, title="Q1(a) Steady-state metric (Dirichlet case)")
 
     # --------------------------
     # Q1(b): Replace the boundary conditions on the *right* and *top* edges with insulation:
@@ -680,6 +726,7 @@ def main():
 
     plot_snapshots(res_b, title_prefix="Q1(b) ")
     plot_center_temperature(res_b, title="Q1(b) Center temperature vs time (Insulated top+right)")
+    plot_steady_metric(res_b, title="Q1(b) Steady-state metric (Insulated case)")
 
     # Comparison plot: center temperature
     fig, ax = plt.subplots(figsize=(8, 4.8))
@@ -695,16 +742,8 @@ def main():
 
     # Param study figures
     parameter_study()
-
-    # Q2: show the stability derivation in console (compact, but explicit)
-    print("\n=== Q2 Stability (Von Neumann) ===")
-    print("Scheme: (u^{n+1}_m - u^{n-1}_m)/dt = (alpha/h^2)(u^n_{m+1}-2u^n_m+u^n_{m-1})")
-    print("Assume u^n_m = G^n exp(i k m h).")
-    print("(G - G^{-1})/dt = (alpha/h^2)(e^{ikh}-2+e^{-ikh}) = -(4 alpha/h^2) sin^2(kh/2).")
-    print("Let mu = 4 alpha dt / h^2 * sin^2(kh/2) >= 0.")
-    print("Then G - G^{-1} = -mu  =>  G^2 + mu G - 1 = 0.")
-    print("Roots: G = (-mu ± sqrt(mu^2 + 4))/2, with product G1*G2 = -1.")
-    print("For any mu>0 (nontrivial mode), roots are real and one has |G|>1 -> unstable.")
+    # Q2: stability analysis + plot
+    stability_analysis_q2(alpha=1.0, dt=1.0, h=0.1, do_plot=True)
 
     plt.show()
 

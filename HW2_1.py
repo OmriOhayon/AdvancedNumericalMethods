@@ -715,7 +715,7 @@ def main():
         Nx=30, Ny=30,
         dt=0.5,
         t_final=6000.0,
-        T_init=60.0,
+        T_init=20.0,
         bc=bc_b,
         steady_tol=1e-6,
         steady_window=30,
